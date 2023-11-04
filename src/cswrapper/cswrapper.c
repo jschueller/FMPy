@@ -296,22 +296,47 @@ fmi2Component fmi2Instantiate(fmi2String instanceName,
     m->c = m->fmi2Instantiate(instanceName, fmi2ModelExchange, fmuGUID, fmuResourceLocation, functions, visible, loggingOn); 
 	ASSERT_NOT_NULL(m->c)
     
+#if SUNDIALS_VERSION_MAJOR >= 6
+    SUNContext ctx;
+    void *comm = NULL;
+    SUNContext_Create(comm, &ctx);
+#endif
+
     if (m->nx > 0) {
+#if SUNDIALS_VERSION_MAJOR >= 6
+        m->x = N_VNew_Serial(m->nx, ctx);
+        m->abstol = N_VNew_Serial(m->nx, ctx);
+#else
         m->x = N_VNew_Serial(m->nx);
         m->abstol = N_VNew_Serial(m->nx);
+#endif
         for (size_t i = 0; i < m->nx; i++) {
             NV_DATA_S(m->abstol)[i] = RTOL;
         }
+#if SUNDIALS_VERSION_MAJOR >= 6
+        m->A = SUNDenseMatrix(m->nx, m->nx, ctx);
+#else
         m->A = SUNDenseMatrix(m->nx, m->nx);
+#endif
     } else  {
+#if SUNDIALS_VERSION_MAJOR >= 6
+        m->x = N_VNew_Serial(1, ctx);
+        m->abstol = N_VNew_Serial(1, ctx);
+        m->A = SUNDenseMatrix(1, 1, ctx);
+#else
         m->x = N_VNew_Serial(1);
         m->abstol = N_VNew_Serial(1);
-        NV_DATA_S(m->abstol)[0] = RTOL;
         m->A = SUNDenseMatrix(1, 1);
+#endif
+        NV_DATA_S(m->abstol)[0] = RTOL;
     }
-    
+
+#if SUNDIALS_VERSION_MAJOR >= 6
+    m->cvode_mem = CVodeCreate(CV_BDF, ctx);
+#else
     m->cvode_mem = CVodeCreate(CV_BDF);
-    
+#endif
+
 	int flag;
 		
 	flag = CVodeInit(m->cvode_mem, f, 0, m->x);
@@ -324,8 +349,12 @@ fmi2Component fmi2Instantiate(fmi2String instanceName,
         flag = CVodeRootInit(m->cvode_mem, (int)m->nz, g);
 		ASSERT_CV_SUCCESS(flag)
     }
-    
+
+#if SUNDIALS_VERSION_MAJOR >= 6
+    m->LS = SUNLinSol_Dense(m->x, m->A, ctx);
+#else
     m->LS = SUNLinSol_Dense(m->x, m->A);
+#endif
 
     flag = CVodeSetLinearSolver(m->cvode_mem, m->LS, m->A);
 	ASSERT_CV_SUCCESS(flag)
@@ -339,6 +368,9 @@ fmi2Component fmi2Instantiate(fmi2String instanceName,
     flag = CVodeSetUserData(m->cvode_mem, m);
 	ASSERT_CV_SUCCESS(flag)
 
+#if SUNDIALS_VERSION_MAJOR >= 6
+    SUNContext_Free(&ctx);
+#endif
     return m;
 }
 
